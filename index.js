@@ -128,20 +128,23 @@ function initUI() {
         // 插入到扩展示单列表下
         $('#extensions_settings').append(panelHtml);
 
-        // 绑定主面板下拉展开
-        $('#intiface-plugin-drawer .inline-drawer-toggle').on('click', function () {
+        // 强隔离的展开动画控制器：防止和酒馆原生的事件绑定发生诡异的冲突（双重绑定导致刚打开又被关上）
+        $('#intiface-plugin-drawer .inline-drawer-toggle').off('click').on('click', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
             const content = $(this).next('.inline-drawer-content');
             const icon = $(this).find('.inline-drawer-icon');
+            
             if (content.is(':visible')) {
-                content.slideUp(200);
+                content.stop(true, true).slideUp(150);
                 icon.removeClass('up').addClass('down');
             } else {
-                content.slideDown(200);
+                content.stop(true, true).slideDown(150);
                 icon.removeClass('down').addClass('up');
             }
         });
 
-        $('.if-collapsible').on('click', function () {
+        $('.if-collapsible').off('click').on('click', function() {
             $(this).next('.if-collapse-content').toggleClass('collapsed');
         });
 
