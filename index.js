@@ -3,8 +3,8 @@
   通过 Intiface Central 控制蓝牙玩具，支持多驱动和复杂指令并发。
 */
 
-import { getContext } from '../../../extensions.js';
-import { eventSource, event_types } from '../../../../script.js';
+// 为了避免不同安装路径（原生扩展 vs 第三方安装器）带来的相对路径层级报错（404 Not Found），
+// 此处我们取消写死的 ES6 import，直接在运行时动态引用 SillyTavern 暴露的全局对象。
 
 const PLUGIN_NAME = 'IntifaceControl';
 const SETTINGS_KEY = 'intiface_plugin_settings';
@@ -32,29 +32,18 @@ let pendingResponses = new Map();
 
 // ==================== UI 层 ====================
 function initUI() {
-    // 注入顶部按钮
-    if (!$('#intiface-toggle-btn').length) {
-        const toggleBtn = `
-            <div id="intiface-toggle-btn" class="menu_button fas fa-gamepad" title="Intiface 玩具控制器" style="cursor: pointer;"></div>
-        `;
-        $('#top-bar').append(toggleBtn);
-
-        $('#intiface-toggle-btn').on('click', () => {
-            $('#intiface-plugin-panel').fadeToggle(200);
-        });
-    }
-
-    // 弹窗 HTML（包含所有的样式和控件）
+    // 构建标准的酒馆扩展抽屉面板 (Inline Drawer)
     const panelHtml = `
-    <div id="intiface-plugin-panel" style="display: none;">
-        <div class="if-header" id="intiface-drag-handle">
-            <h3>🎮 Intiface 玩具控制器 <span class="version">v1.1</span></h3>
-            <div class="if-close-btn" id="intiface-close-btn">&times;</div>
+    <div class="inline-drawer" id="intiface-plugin-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>玩具控制器</b>
+            <div class="inline-drawer-icon fa-solid fa-chevron-down down"></div>
         </div>
-        <div class="if-body">
-            <!-- 连接管理 -->
-            <div class="if-section">
-                <div class="if-section-title">📡 连接管理</div>
+        <div class="inline-drawer-content" style="display: none;">
+            <div class="if-body">
+                <!-- 连接管理 -->
+                <div class="if-section">
+                    <div class="if-section-title">连接管理</div>
                 <div class="if-connection-row">
                     <div class="if-status-dot" id="if-status-dot"></div>
                     <span class="if-status-text" id="if-status-text">未连接</span>
@@ -71,7 +60,7 @@ function initUI() {
 
             <!-- 设备列表 -->
             <div class="if-section">
-                <div class="if-section-title">📱 已连接设备</div>
+                <div class="if-section-title">已连接设备</div>
                 <div id="if-device-list">
                     <div class="device-empty">暂无设备连接</div>
                 </div>
@@ -79,7 +68,7 @@ function initUI() {
 
             <!-- 参数设置 -->
             <div class="if-section">
-                <div class="if-section-title if-collapsible">⚙ 参数设置</div>
+                <div class="if-section-title if-collapsible">参数设置</div>
                 <div class="if-collapse-content collapsed">
                     <div class="if-setting-row">
                         <div class="if-setting-label">启用解析自动控制</div>
@@ -114,36 +103,45 @@ function initUI() {
 
             <!-- 模式测试 -->
             <div class="if-section">
-                <div class="if-section-title if-collapsible">🎵 模式测试</div>
+                <div class="if-section-title if-collapsible">模式测试</div>
                 <div class="if-collapse-content collapsed">
                     <div class="pattern-grid">
-                        <button class="pattern-btn" data-pattern="pulse">💗 脉冲</button>
-                        <button class="pattern-btn" data-pattern="wave">🌊 波浪</button>
-                        <button class="pattern-btn" data-pattern="escalate">📈 渐强</button>
-                        <button class="pattern-btn" data-pattern="tease">✨ 挑逗</button>
-                        <button class="pattern-btn" data-pattern="heartbeat">💓 心跳</button>
+                        <button class="pattern-btn" data-pattern="pulse">脉冲</button>
+                        <button class="pattern-btn" data-pattern="wave">波浪</button>
+                        <button class="pattern-btn" data-pattern="escalate">渐强</button>
+                        <button class="pattern-btn" data-pattern="tease">挑逗</button>
+                        <button class="pattern-btn" data-pattern="heartbeat">心跳</button>
                     </div>
                 </div>
             </div>
 
             <!-- 紧急停止 -->
             <div class="if-section if-emergency" style="margin-top: 10px;">
-                <button class="if-btn if-btn-danger" id="if-stop-all" style="width: 100%; font-size: 14px;">⏹ 紧急停止所有设备</button>
+                <button class="if-btn if-btn-danger" id="if-stop-all" style="width: 100%; font-size: 14px;">紧急停止所有设备</button>
+            </div>
             </div>
         </div>
     </div>
     `;
 
-    if (!$('#intiface-plugin-panel').length) {
-        $('body').append(panelHtml);
+    if (!$('#intiface-plugin-drawer').length) {
+        // 插入到扩展示单列表下
+        $('#extensions_settings').append(panelHtml);
 
-        // 绑定拖拽
-        $('#intiface-plugin-panel').draggable({ handle: '#intiface-drag-handle' });
+        // 绑定主面板下拉展开
+        $('#intiface-plugin-drawer .inline-drawer-toggle').on('click', function () {
+            const content = $(this).next('.inline-drawer-content');
+            const icon = $(this).find('.inline-drawer-icon');
+            if (content.is(':visible')) {
+                content.slideUp(200);
+                icon.removeClass('up').addClass('down');
+            } else {
+                content.slideDown(200);
+                icon.removeClass('down').addClass('up');
+            }
+        });
 
-        // 绑定事件
-        $('#intiface-close-btn').on('click', () => $('#intiface-plugin-panel').fadeOut(200));
-
-        $('.if-collapsible').on('click', function() {
+        $('.if-collapsible').on('click', function () {
             $(this).next('.if-collapse-content').toggleClass('collapsed');
         });
 
@@ -162,14 +160,14 @@ function initUI() {
         $('#if-stop-all').on('click', () => stopAllDevices());
 
         // 设置保存绑定
-        $('#if-set-enabled').on('change', function() { settings.enabled = $(this).prop('checked'); saveSettings(); });
-        $('#if-set-autoconnect').on('change', function() { settings.autoConnect = $(this).prop('checked'); saveSettings(); });
-        $('#if-set-format').on('change', function() { settings.tagFormat = $(this).val(); saveSettings(); });
-        $('#if-set-duration').on('change', function() { settings.defaultDuration = parseInt($(this).val()); saveSettings(); });
-        $('#if-set-maxint').on('change', function() { settings.maxIntensity = parseFloat($(this).val()); saveSettings(); });
-        $('#if-set-defint').on('change', function() { settings.defaultIntensity = parseFloat($(this).val()); saveSettings(); });
+        $('#if-set-enabled').on('change', function () { settings.enabled = $(this).prop('checked'); saveSettings(); });
+        $('#if-set-autoconnect').on('change', function () { settings.autoConnect = $(this).prop('checked'); saveSettings(); });
+        $('#if-set-format').on('change', function () { settings.tagFormat = $(this).val(); saveSettings(); });
+        $('#if-set-duration').on('change', function () { settings.defaultDuration = parseInt($(this).val()); saveSettings(); });
+        $('#if-set-maxint').on('change', function () { settings.maxIntensity = parseFloat($(this).val()); saveSettings(); });
+        $('#if-set-defint').on('change', function () { settings.defaultIntensity = parseFloat($(this).val()); saveSettings(); });
 
-        $('.pattern-btn').on('click', function() {
+        $('.pattern-btn').on('click', function () {
             const pat = $(this).data('pattern');
             if (!isConnected || devices.size === 0) return toastr.warning('请先连接蓝牙玩具设备');
             executePattern(pat, settings.defaultIntensity, 3000);
@@ -193,7 +191,7 @@ function getSliderVal(type, devIdx, featIdx) {
 function updateConnectionUI(connected) {
     const statusDot = $('#if-status-dot');
     const statusText = $('#if-status-text');
-    
+
     if (connected) {
         statusDot.css({ background: 'linear-gradient(135deg, #00e676, #69f0ae)', boxShadow: '0 0 8px rgba(0,230,118,0.6)' });
         statusText.text('已连接');
@@ -230,10 +228,10 @@ function updateDevicePanel() {
                 for (let m = 0; m < vc; m++) {
                     vCtrl += `
                     <div class="control-row">
-                        <label>震动 ${m+1}</label>
+                        <label>震动 ${m + 1}</label>
                         <input type="range" class="slider" id="vibrate-slider-${index}-${m}" value="50" oninput="$(this).next().text(this.value+'%')" />
                         <span class="slider-value">50%</span>
-                        <button class="btn-sm btn-vibrate" onclick="window._ifTrigger.vibrate(${index}, ${m})">▶</button>
+                        <button class="btn-sm btn-vibrate" onclick="window._ifTrigger.vibrate(${index}, ${m})">测试</button>
                     </div>`;
                 }
             } else {
@@ -300,9 +298,11 @@ function sendButtplugMessage(msg) {
     if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) return Promise.reject('未连接');
     return new Promise((resolve, reject) => {
         const id = msg[Object.keys(msg)[0]].Id;
-        pendingResponses.set(id, { resolve, reject, timeout: setTimeout(() => {
-            pendingResponses.delete(id); reject('请求超时');
-        }, 10000) });
+        pendingResponses.set(id, {
+            resolve, reject, timeout: setTimeout(() => {
+                pendingResponses.delete(id); reject('请求超时');
+            }, 10000)
+        });
         wsConnection.send(JSON.stringify([msg]));
     });
 }
@@ -316,7 +316,7 @@ function handleButtplugMessage(data) {
             switch (type) {
                 case 'ServerInfo':
                     toastr.success(`已连接到服务器: ${content.ServerName}`);
-                    sendButtplugMessage({ RequestDeviceList: { Id: generateMsgId() } }).catch(()=>{});
+                    sendButtplugMessage({ RequestDeviceList: { Id: generateMsgId() } }).catch(() => { });
                     break;
                 case 'DeviceList':
                     devices.clear();
@@ -385,10 +385,10 @@ function disconnectFromServer() {
 
 async function startScanning() {
     if (!isConnected) return toastr.warning('请先连接蓝牙服务器');
-    try { await sendButtplugMessage({ StartScanning: { Id: generateMsgId() } }); } catch (e) {}
+    try { await sendButtplugMessage({ StartScanning: { Id: generateMsgId() } }); } catch (e) { }
 }
 function stopScanning() {
-    if (isConnected) sendButtplugMessage({ StopScanning: { Id: generateMsgId() } }).catch(()=>{});
+    if (isConnected) sendButtplugMessage({ StopScanning: { Id: generateMsgId() } }).catch(() => { });
 }
 
 // ==================== 设备解析与能力 ====================
@@ -446,7 +446,7 @@ function getCapabilityLabels(device) {
     const sc = caps.filter(c => SUCTION_TYPES.includes(c.type)).length;
     const rc = caps.filter(c => c.type === 'Rotate').length;
     const lc = caps.filter(c => c.type === 'Linear').length;
-    
+
     if (vc > 0) labels.push(`震动×${vc}`);
     if (sc > 0) labels.push(`吮吸×${sc}`);
     if (rc > 0) labels.push(`旋转×${rc}`);
@@ -465,7 +465,7 @@ async function vibrateDevice(deviceIndex, intensity, duration, featureIndex = nu
     if (vibrateCaps.length > 0 && vibrateCaps[0].cmdType === 'ScalarCmd') {
         const scalars = vibrateCaps.filter((_, i) => featureIndex === null || i === featureIndex)
             .map(c => ({ Index: c.index, Scalar: intensity, ActuatorType: 'Vibrate' }));
-        if (scalars.length) await sendButtplugMessage({ ScalarCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Scalars: scalars } }).catch(()=>{});
+        if (scalars.length) await sendButtplugMessage({ ScalarCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Scalars: scalars } }).catch(() => { });
     } else if (device.DeviceMessages?.['VibrateCmd']) {
         const count = device.DeviceMessages['VibrateCmd'].FeatureCount || 1;
         const speeds = [];
@@ -473,7 +473,7 @@ async function vibrateDevice(deviceIndex, intensity, duration, featureIndex = nu
             if (featureIndex !== null && i !== featureIndex) continue;
             speeds.push({ Index: i, Speed: intensity });
         }
-        await sendButtplugMessage({ VibrateCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Speeds: speeds } }).catch(()=>{});
+        await sendButtplugMessage({ VibrateCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Speeds: speeds } }).catch(() => { });
     }
 
     if (duration > 0) setTimeout(() => vibrateDevice(deviceIndex, 0, 0, featureIndex), duration);
@@ -489,7 +489,7 @@ async function suckDevice(deviceIndex, intensity, duration, featureIndex = null)
     const scalars = suctionCaps.filter((_, i) => featureIndex === null || i === featureIndex)
         .map(c => ({ Index: c.index, Scalar: intensity, ActuatorType: c.type }));
 
-    if (scalars.length) await sendButtplugMessage({ ScalarCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Scalars: scalars } }).catch(()=>{});
+    if (scalars.length) await sendButtplugMessage({ ScalarCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Scalars: scalars } }).catch(() => { });
     if (duration > 0) setTimeout(() => suckDevice(deviceIndex, 0, 0, featureIndex), duration);
 }
 
@@ -503,11 +503,11 @@ async function rotateDevice(deviceIndex, speed, clockwise = true, duration, feat
         if (rotateCaps[0].cmdType === 'ScalarCmd') {
             const scalars = rotateCaps.filter((_, i) => featureIndex === null || i === featureIndex)
                 .map(c => ({ Index: c.index, Scalar: speed, ActuatorType: 'Rotate' }));
-            if (scalars.length) await sendButtplugMessage({ ScalarCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Scalars: scalars } }).catch(()=>{});
+            if (scalars.length) await sendButtplugMessage({ ScalarCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Scalars: scalars } }).catch(() => { });
         } else if (device.DeviceMessages?.['RotateCmd']) {
             const rotations = rotateCaps.filter((_, i) => featureIndex === null || i === featureIndex)
                 .map(c => ({ Index: c.index, Speed: speed, Clockwise: clockwise }));
-            await sendButtplugMessage({ RotateCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Rotations: rotations } }).catch(()=>{});
+            await sendButtplugMessage({ RotateCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Rotations: rotations } }).catch(() => { });
         }
     }
     if (duration > 0) setTimeout(() => rotateDevice(deviceIndex, 0, true, 0, featureIndex), duration);
@@ -522,7 +522,7 @@ async function linearDevice(deviceIndex, position, moveDuration, featureIndex = 
     const vectors = caps.filter((_, i) => featureIndex === null || i === featureIndex)
         .map(c => ({ Index: c.index, Duration: moveDuration || 500, Position: position }));
 
-    if (vectors.length) await sendButtplugMessage({ LinearCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Vectors: vectors } }).catch(()=>{});
+    if (vectors.length) await sendButtplugMessage({ LinearCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex, Vectors: vectors } }).catch(() => { });
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -545,10 +545,10 @@ async function thrustDevice(deviceIndex, speed, stroke = 1.0, duration = 3000, f
 }
 
 async function stopDevice(deviceIndex) {
-    await sendButtplugMessage({ StopDeviceCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex } }).catch(()=>{});
+    await sendButtplugMessage({ StopDeviceCmd: { Id: generateMsgId(), DeviceIndex: deviceIndex } }).catch(() => { });
 }
 async function stopAllDevices() {
-    await sendButtplugMessage({ StopAllDevices: { Id: generateMsgId() } }).catch(()=>{});
+    await sendButtplugMessage({ StopAllDevices: { Id: generateMsgId() } }).catch(() => { });
 }
 
 async function vibrateAllDevices(intensity, duration) {
@@ -629,19 +629,19 @@ function buildXMLCommands(attrs, raw) {
     // Vibrate
     if ('vibrate' in attrs) commands.push({ raw, type: 'vibrate', params: { intensity: parseFloat(attrs.vibrate) || settings.defaultIntensity, duration: globalDur, featureIndex: null, deviceIndex } });
     for (let i = 1; i <= 8; i++) {
-        if (`vibrate${i}` in attrs) commands.push({ raw, type: 'vibrate', params: { intensity: parseFloat(attrs[`vibrate${i}`]) || settings.defaultIntensity, duration: globalDur, featureIndex: i-1, deviceIndex } });
+        if (`vibrate${i}` in attrs) commands.push({ raw, type: 'vibrate', params: { intensity: parseFloat(attrs[`vibrate${i}`]) || settings.defaultIntensity, duration: globalDur, featureIndex: i - 1, deviceIndex } });
     }
 
     // Suck
     if ('suck' in attrs) commands.push({ raw, type: 'suck', params: { intensity: parseFloat(attrs.suck) || settings.defaultIntensity, duration: globalDur, featureIndex: null, deviceIndex } });
     for (let i = 1; i <= 4; i++) {
-        if (`suck${i}` in attrs) commands.push({ raw, type: 'suck', params: { intensity: parseFloat(attrs[`suck${i}`]) || settings.defaultIntensity, duration: globalDur, featureIndex: i-1, deviceIndex } });
+        if (`suck${i}` in attrs) commands.push({ raw, type: 'suck', params: { intensity: parseFloat(attrs[`suck${i}`]) || settings.defaultIntensity, duration: globalDur, featureIndex: i - 1, deviceIndex } });
     }
 
     // Thrust
     if ('thrust' in attrs) commands.push({ raw, type: 'thrust', params: { speed: parseFloat(attrs.thrust) || 0.5, stroke: parseFloat(attrs.stroke) || 1.0, duration: globalDur, featureIndex: null, deviceIndex } });
     for (let i = 1; i <= 4; i++) {
-        if (`thrust${i}` in attrs) commands.push({ raw, type: 'thrust', params: { speed: parseFloat(attrs[`thrust${i}`]) || 0.5, stroke: parseFloat(attrs.stroke) || 1.0, duration: globalDur, featureIndex: i-1, deviceIndex } });
+        if (`thrust${i}` in attrs) commands.push({ raw, type: 'thrust', params: { speed: parseFloat(attrs[`thrust${i}`]) || 0.5, stroke: parseFloat(attrs.stroke) || 1.0, duration: globalDur, featureIndex: i - 1, deviceIndex } });
     }
 
     // Linear
@@ -746,7 +746,7 @@ async function processCommandQueue() {
     while (commandQueue.length > 0) {
         const batch = [commandQueue.shift()];
         while (commandQueue.length > 0 && commandQueue[0].raw === batch[0].raw) batch.push(commandQueue.shift());
-        
+
         if (batch.length === 1) await executeCommand(batch[0]);
         else await Promise.all(batch.map(cmd => executeCommand(cmd)));
 
@@ -773,38 +773,57 @@ function saveSettings() {
 function loadSettings() {
     const saved = localStorage.getItem(SETTINGS_KEY);
     if (saved) {
-        try { settings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) }; } catch (e) {}
+        try { settings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) }; } catch (e) { }
     }
 }
 
 // Native ST Plugin init
-jQuery(async function() {
-    console.log(`[${PLUGIN_NAME}] 插件开始加载...`);
+
+// 根级别日志：只要酒馆加载了这个 JS 文件，这句话就必须会出现
+console.log('%c[玩具控制器] %c插件脚本核心已成功载入内存！等待酒馆 DOM 准备就绪...', 'color: #00e676; font-weight: bold;', 'color: #aaa;');
+
+jQuery(async function () {
+    console.log('%c[玩具控制器] %c开始初始化界面和事件监听...', 'color: #00e676; font-weight: bold;', 'color: #fff;');
     loadSettings();
     initUI();
 
-    // 监听原生 ST 事件
-    eventSource.on(event_types.MESSAGE_RECEIVED, async (messageId) => {
-        try {
-            const chat = getContext().chat;
-            const message = chat.find(m => m.mes === messageId || m._id === messageId || m.uid === messageId) || chat[chat.length - 1]; // Fallback to last message
-            if (message && message.is_user !== true) { // Assistant 消息
-                processAIMessage(message.mes);
-            }
-        } catch (e) {
-            console.error('Intiface handler error:', e);
-        }
-    });
+    // 动态获取全局对象，防止被包裹在严格模块作用域中导致 ReferenceError
+    const ST_eventSource = window.eventSource;
+    const ST_event_types = window.event_types;
+    const ST_getContext = window.getContext;
 
-    eventSource.on(event_types.MESSAGE_EDITED, (messageId) => {
-        try {
-            const chat = getContext().chat;
-            const message = chat.find(m => m.mes === messageId || m._id === messageId || m.uid === messageId);
-            if (message && message.is_user !== true) processAIMessage(message.mes);
-        } catch (e) {}
-    });
+    if (!ST_eventSource || !ST_event_types) {
+        console.error('%c[玩具控制器] %c找不到酒馆全局变量 eventSource，插件无法正常接收消息事件！请检查安装方式。', 'color: #ff5252; font-weight: bold;', 'color: #ff5252;');
+    } else {
+        // 监听原生 ST 事件
+        ST_eventSource.on(ST_event_types.MESSAGE_RECEIVED, async (messageId) => {
+            try {
+                if (!ST_getContext) return;
+                const chat = ST_getContext().chat;
+                const message = chat.find(m => m.mes === messageId || m._id === messageId || m.uid === messageId) || chat[chat.length - 1]; // Fallback to last message
+                if (message && message.is_user !== true) { // Assistant 消息
+                    processAIMessage(message.mes);
+                }
+            } catch (e) {
+                console.error('[玩具控制器] handler error:', e);
+            }
+        });
+
+        ST_eventSource.on(ST_event_types.MESSAGE_EDITED, (messageId) => {
+            try {
+                if (!ST_getContext) return;
+                const chat = ST_getContext().chat;
+                const message = chat.find(m => m.mes === messageId || m._id === messageId || m.uid === messageId);
+                if (message && message.is_user !== true) processAIMessage(message.mes);
+            } catch (e) {
+                console.error('[玩具控制器] edit handler error:', e);
+            }
+        });
+    }
 
     if (settings.autoConnect) {
-        setTimeout(() => connectToServer().catch(()=>{}), 2000);
+        setTimeout(() => connectToServer().catch(() => { }), 2000);
     }
+
+    console.log('%c[玩具控制器] %c插件初始化完成！你现在可以进入[扩展]菜单面板中打开玩具控制面板。', 'color: #00e676; font-weight: bold;', 'color: #fff;');
 });
