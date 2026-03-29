@@ -787,13 +787,39 @@ jQuery(async function () {
     loadSettings();
     initUI();
 
-    // 动态获取全局对象，防止被包裹在严格模块作用域中导致 ReferenceError
-    const ST_eventSource = window.eventSource;
-    const ST_event_types = window.event_types;
-    const ST_getContext = window.getContext;
+    // 2. 动态加载酒馆最新版本的 ES6 模块 API，防止找不到 eventSource 导致失效
+    let ST_eventSource = window.eventSource;
+    let ST_event_types = window.event_types;
+    let ST_getContext = window.getContext;
+
+    let initSuccess = false;
+    const loadPaths = [
+        '../../../../script.js',      // third-party 目录层级
+        '../../script.js',           // 原生 extensions 目录层级
+        '../../../script.js'         // 备用层级
+    ];
+
+    for (const path of loadPaths) {
+        try {
+            const mod = await import(path);
+            if (mod.eventSource) {
+                ST_eventSource = mod.eventSource;
+                ST_event_types = mod.event_types;
+                initSuccess = true;
+                break;
+            }
+        } catch (e) { /* 继续下一个路径尝试 */ }
+    }
+
+    try {
+        // 获取上下文的方法通常位于 extensions.js
+        const extPath = initSuccess && loadPaths[0] === '../../../../script.js' ? '../../../../extensions.js' : '../../extensions.js';
+        const extMod = await import(extPath);
+        if (extMod.getContext) ST_getContext = extMod.getContext;
+    } catch (e) {}
 
     if (!ST_eventSource || !ST_event_types) {
-        console.error('%c[玩具控制器] %c找不到酒馆全局变量 eventSource，插件无法正常接收消息事件！请检查安装方式。', 'color: #ff5252; font-weight: bold;', 'color: #ff5252;');
+        console.error('%c[玩具控制器] %c找不到酒馆核心模块 eventSource！请再次确认安装位置。', 'color: #ff5252; font-weight: bold;', 'color: #ff5252;');
     } else {
         // 监听原生 ST 事件
         ST_eventSource.on(ST_event_types.MESSAGE_RECEIVED, async (messageId) => {
