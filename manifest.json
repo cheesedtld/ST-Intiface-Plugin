@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "Faye",
-  "version": "1.1.2",
+  "version": "1.0.0",
   "description": "通过 Intiface Central 连接和控制蓝牙玩具，支持震动、伸缩、吮吸及复杂模式。",
   "auto_update": false
 }
